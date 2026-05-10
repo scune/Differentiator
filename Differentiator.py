@@ -464,10 +464,11 @@ def ParseArgs():
 term = ParseArgs()
 
 print("Parsed term:", term.String())
-print("First term type:", type(term))
-print("A, B term type:", type(term.a), type(term.b))
-print("B.a, B.b term type:", type(term.b.a), type(term.b.b))
-# TODO: Fix mul. and add. order
+# TODO: Fix mul. and add. order:
+# First, parse additions and put the a, b string terms from a+b in the addition class like: Addition(a, b)
+# Second, parse multiplication stored inside the addition class a, b string terms
+# Third, parse functions and parentheses, ln(x), e^x, (), etc. and if the functions x parameter is itself a function, then
+# recursively call the whole parsing function
 
 term = term.Simplify()
 print("Simplified:", term.String())
