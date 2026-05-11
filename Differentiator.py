@@ -433,6 +433,55 @@ def GlueFunctions(parsed_funcs : list):
 
     return parsed_funcs[0]
 
+def ParseFunction(term_str, func_idx, func_str, func):
+    if func_idx == 0:
+        bracket_term = ParseBracketsAsPrefix(term_str[func_idx + len(func_str):])
+        if len(bracket_term) > 0:
+            func.a = bracket_term
+        else:
+            
+
+def IsInBrackets(term_str : str, idx : int):
+    bracket_count = term_str.count(")", 0, idx)
+    bracket_count += term_str.count("}", 0, idx)
+    bracket_count += term_str.count("]", 0, idx)
+    return (bracket_count % 2 == 1)
+
+def ParseFunctionParameterAsStr(term_str : str):
+    # TODO: only parse string of the parameter
+
+def ParseTerm(term_str : str, tokens, func = BaseFunction("", "")):
+    add_idx = term_str.find("+")
+    if add_idx != -1 and not IsInBrackets(term_str, add_idx):
+        func = Addition(term_str[0:add_idx], term_str[0:add_idx+1])
+        func.a = ParseTerm(func.a)
+        func.b = ParseTerm(func.b)
+        return func
+
+    mul_idx = term_str.find("*")
+    if mul_idx != -1 and not IsInBrackets(term_str, mul_idx):
+        func = Multiplication(term_str[0:mul_idx], term_str[0:mul_idx+1])
+        func.a = ParseTerm(func.a)
+        func.b = ParseTerm(func.b)
+        return func
+    
+    # Functions
+    expo_idx = term_str.find("e^")
+    if expo_idx != -1 and not IsInBrackets(term_str, expo_idx):
+        a_idx = expo_idx + len("e^")
+        bracket_term = ParseBracketsAsPrefix(term_str[a_idx:])
+        if len(bracket_term) > 0:
+            func = Exponential(bracket_term)
+        else:
+            func = Exponential(ParseFunctionParameterAsStr(term_str[a_idx:]))
+        func.a = ParseTerm(func.a)
+
+        if expo_idx != 0:
+            func = Multiplication(term_str[0:expo_idx], func)
+            func.a = ParseTerm(func.a)
+        return func
+
+
 def ParseArgs():
     if len(sys.argv) <= 1 or sys.argv[1] == "--help":
         Usage()
