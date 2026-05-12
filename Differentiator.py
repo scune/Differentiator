@@ -304,142 +304,17 @@ def ParseBracketsAsPrefix(term_str : str):
     
     return ""
 
-def ParseTermPrefix(term_str : str, tokens, token_funcs, b_only_potentiation = False):
-    numeric_substr = ''.join(takewhile(str.isdigit, term_str))
-    if len(numeric_substr) > 0: # If numberic prefix
+def ParseBracketsAsSuffix(term_str : str):
+    open_brackets = [ "(", "{", "[" ]
+    closing_brackets = [ ")", "}", "]" ]
 
-        if b_only_potentiation:
-            return [term_str, BaseFunction(0, 0)]
-
-        term_str = term_str.removeprefix(numeric_substr)
-        return [term_str, Constant(float(numeric_substr))]
+    for i, closing_bracket in enumerate(closing_brackets):
+        if term_str.endswith(closing_bracket):
+            open_bracket_idx = term_str.find(open_brackets[i])
+            bracket_term_str = term_str[open_bracket_idx+1:-2]
+            return bracket_term_str
     
-    bracket_term_str = ParseBracketsAsPrefix(term_str)
-    if len(bracket_term_str) > 0: # Brackets
-
-        if b_only_potentiation:
-            return [term_str, BaseFunction(0, 0)]
-
-        term_str = term_str[len(bracket_term_str) + 2:]
-
-        # Parse bracket term
-        [_, a] = ParseTermPrefix(bracket_term_str, tokens, token_funcs)
-
-        # Check what's after the bracket
-        [term_str, b] = ParseTermPrefix(term_str, tokens, token_funcs)
-        if type(b) is BaseFunction:
-            return  [term_str, a]
-        elif type(b) is Potentiation:
-            return [term_str, Potentiation(a, b)]
-        elif type(b) is Addition:
-            return [term_str, Addition(a, b)]
-        else:
-            return [term_str, Multiplication(a, b)]
-
-    for i, token in enumerate(tokens):
-        if term_str.startswith(token):
-
-            if b_only_potentiation and not (token_funcs[i] is Potentiation):
-                return [term_str, BaseFunction(0, 0)]
-                
-            term_str = term_str.removeprefix(token)
-
-            # Get next func to check later if it is a potentiation
-            term_str_old = term_str
-            [next_term_str, next_func] = ParseTermPrefix(term_str, tokens, token_funcs, True)
-
-            parsed_func = BaseFunction(0, 0)
-
-            if token_funcs[i] is Exponential:
-                bracket_term_str = ParseBracketsAsPrefix(term_str)
-                if len(bracket_term_str) > 0: # Brackets
-                    term_str = term_str[len(bracket_term_str) + 2:]
-
-                    [_, a] = ParseTermPrefix(bracket_term_str, tokens, token_funcs)
-                    parsed_func = Exponential(a)
-                else: # No brackets
-                    [term_str, a] = ParseTermPrefix(term_str, tokens, token_funcs)
-                    parsed_func = Exponential(a)
-
-            elif token_funcs[i] is Potentiation:
-                bracket_term_str = ParseBracketsAsPrefix(term_str)
-                if len(bracket_term_str) > 0: # Brackets
-                    term_str = term_str[len(bracket_term_str) + 2:]
-
-                    [_, b] = ParseTermPrefix(bracket_term_str, tokens, token_funcs)
-                    parsed_func = Potentiation(0, b)
-                else: # No brackets
-                    [term_str, b] = ParseTermPrefix(term_str, tokens, token_funcs)
-                    parsed_func = Potentiation(0, b)
-            
-            elif token_funcs[i] is NaturalLog:
-                bracket_term_str = ParseBracketsAsPrefix(term_str)
-                if len(bracket_term_str) > 0: # Brackets
-                    term_str = term_str[len(bracket_term_str) + 2:]
-
-                    [_, a] = ParseTermPrefix(bracket_term_str, tokens, token_funcs)
-                    parsed_func = NaturalLog(a)
-                else: # No brackets
-                    [term_str, a] = ParseTermPrefix(term_str, tokens, token_funcs)
-                    parsed_func = NaturalLog(a)
-                
-            elif token_funcs[i] is Variable:
-                parsed_func = Variable()
-            
-            elif token_funcs[i] is Addition:
-                [term_str, b] = ParseTermPrefix(term_str, tokens, token_funcs)
-                parsed_func = Addition(0, b)
-            
-            elif token_funcs[i] is Multiplication:
-                [term_str, b] = ParseTermPrefix(term_str, tokens, token_funcs)
-                parsed_func = Multiplication(0, b)
-
-            if type(next_func) is Potentiation:
-                next_func.a = parsed_func
-                parsed_func = next_func
-
-                term_str = next_term_str
-
-            return [term_str, parsed_func]
-    
-    return [term_str, BaseFunction(0, 0)]
-
-def GlueFunctions(parsed_funcs : list):
-    for i in range(len(parsed_funcs) - 1, 0, -1):
-        func = parsed_funcs[i]
-        if type(func) is Potentiation:
-            if isinstance(func.a, int):
-                prev_func = parsed_funcs.pop(i - 1)
-                parsed_funcs[i - 1] = Potentiation(prev_func, func.b)
-
-    for i in range(len(parsed_funcs) - 1, 0, -1):
-        func = parsed_funcs[i]
-        if type(func) is Multiplication:
-            if isinstance(func.a, int):
-                prev_func = parsed_funcs.pop(i - 1)
-                parsed_funcs[i - 1] = Multiplication(prev_func, func.b)
-
-    for i in range(len(parsed_funcs) - 1, 0, -1):
-        func = parsed_funcs[i]
-        if type(func) is Addition:
-            if isinstance(func.a, int):
-                prev_func = parsed_funcs.pop(i - 1)
-                parsed_funcs[i - 1] = Addition(prev_func, func.b)
-
-    while len(parsed_funcs) > 1:
-        # Concatenate functions with implicit multiplication
-        next_func = parsed_funcs.pop(1)
-        parsed_funcs[0] = Multiplication(parsed_funcs[0], next_func)
-
-    return parsed_funcs[0]
-
-def ParseFunction(term_str, func_idx, func_str, func):
-    if func_idx == 0:
-        bracket_term = ParseBracketsAsPrefix(term_str[func_idx + len(func_str):])
-        if len(bracket_term) > 0:
-            func.a = bracket_term
-        else:
-            
+    return ""
 
 def IsInBrackets(term_str : str, idx : int):
     bracket_count = term_str.count(")", 0, idx)
@@ -448,38 +323,70 @@ def IsInBrackets(term_str : str, idx : int):
     return (bracket_count % 2 == 1)
 
 def ParseFunctionParameterAsStr(term_str : str):
-    # TODO: only parse string of the parameter
+    if term_str.startswith("ln"):
+        bracket_term = ParseBracketsAsPrefix(term_str[len("ln")-1:])
+        if len(bracket_term) > 0:
+            return term_str[0:bracket_term]
+    elif term_str.startswith("e^"):
+
+    elif term_str.startswith("x"):
+    
+
+    numeric_substr = ''.join(takewhile(str.isdigit, term_str))
+    if len(numeric_substr) > 0:
+
+
+def Parse
+
+def FindNextToken(term_str : str, token : str):
+    idx = 0
+    while idx < len(term_str) and idx != -1:
+        idx = term_str.find(token, idx)
+        if not IsInBrackets(term_str, idx):
+            return idx
+        idx += 1
+
+    return -1
 
 def ParseTerm(term_str : str, tokens, func = BaseFunction("", "")):
-    add_idx = term_str.find("+")
-    if add_idx != -1 and not IsInBrackets(term_str, add_idx):
+    add_idx = FindNextToken(term_str, "+")
+    if add_idx != -1:
         func = Addition(term_str[0:add_idx], term_str[0:add_idx+1])
         func.a = ParseTerm(func.a)
         func.b = ParseTerm(func.b)
         return func
 
-    mul_idx = term_str.find("*")
-    if mul_idx != -1 and not IsInBrackets(term_str, mul_idx):
+    mul_idx = FindNextToken(term_str, "*")
+    if mul_idx != -1:
         func = Multiplication(term_str[0:mul_idx], term_str[0:mul_idx+1])
         func.a = ParseTerm(func.a)
         func.b = ParseTerm(func.b)
         return func
     
     # Functions
-    expo_idx = term_str.find("e^")
-    if expo_idx != -1 and not IsInBrackets(term_str, expo_idx):
-        a_idx = expo_idx + len("e^")
-        bracket_term = ParseBracketsAsPrefix(term_str[a_idx:])
-        if len(bracket_term) > 0:
-            func = Exponential(bracket_term)
-        else:
-            func = Exponential(ParseFunctionParameterAsStr(term_str[a_idx:]))
-        func.a = ParseTerm(func.a)
+    pot_idx = FindNextToken(term_str, "^")
+    if pot_idx != -1:
+        b_idx = pot_idx + len("^")
+        bracket_term_b = ParseBracketsAsPrefix(term_str[b_idx:])
+        if len(bracket_term_b) == 0:
+            bracket_term_b = ParseFunctionParameterAsStr(term_str[b_idx:])
+        
+        if pot_idx != 0:
+            a_idx = pot_idx - 1
+            bracket_term_a = ParseBracketsAsSuffix(term_str[0:a_idx])
 
-        if expo_idx != 0:
+             # TODO: Must either be function, constant or variable but not e^ or ^
+            if len(bracket_term_a) > 0:
+                func = Potentiation(bracket_term_a, bracket_term_b)
+            elif term_str[a_idx] == "e":
+                func = Exponential(bracket_term_b)
+            elif term_str[a_idx] == "x":
+                func = Potentiation(Variable(), bracket_term_b)
+
+
             func = Multiplication(term_str[0:expo_idx], func)
             func.a = ParseTerm(func.a)
-        return func
+        func.a = ParseTerm(func.a)
 
 
 def ParseArgs():
