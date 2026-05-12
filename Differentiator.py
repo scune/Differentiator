@@ -2,7 +2,7 @@ import sys
 from itertools import takewhile
 
 def Usage():
-    print("Accepted functions: ln(a), sqrt(a), a^b, e^a, a+b, a*b, a, x(var)")
+    print("Accepted functions: ln(a), a^b, e^a, a+b, a*b, a, x(var)")
     exit() 
 
 class BaseFunction:
@@ -336,7 +336,20 @@ def ParseFunctionParameterAsStr(term_str : str):
     if len(numeric_substr) > 0:
 
 
-def Parse
+def ParseConstantPrefix(term_str : str):
+    numeric_substr = ''.join(takewhile(str.isdigit, term_str))
+    return float(numeric_substr)
+
+def ParseConstantSuffix(term_str : str):
+    numeric_substr_len = 0
+    for i in range(len(term_str) - 1, -1):
+        if not term_str[i].isdigit():
+            break
+        numeric_substr_len += 1
+    
+    if numeric_substr_len > 0:
+        return ParseConstantPrefix(term_str[len(term_str)-numeric_substr_len-1:])
+    return ""
 
 def FindNextToken(term_str : str, token : str):
     idx = 0
@@ -348,7 +361,22 @@ def FindNextToken(term_str : str, token : str):
 
     return -1
 
-def ParseTerm(term_str : str, tokens, func = BaseFunction("", "")):
+def ParseNextToken(term_str : str):
+    if term_str.startswith("ln"):
+        bracket_term_a = ParseBracketsAsPrefix(term_str[len("ln"):])
+        if len(bracket_term_a) == 0:
+            bracket_term_a = ParseNextToken(term_str[len("ln"):])
+        func = NaturalLog(bracket_term_a)
+        func.a = ParseTerm(func.a)
+        return func
+    if term_str.startswith(""):
+
+
+def ParseTerm(term_str : str):
+    func = BaseFunction("", "")
+    if len(term_str) == 0:
+        return func
+
     add_idx = FindNextToken(term_str, "+")
     if add_idx != -1:
         func = Addition(term_str[0:add_idx], term_str[0:add_idx+1])
@@ -371,23 +399,36 @@ def ParseTerm(term_str : str, tokens, func = BaseFunction("", "")):
         if len(bracket_term_b) == 0:
             bracket_term_b = ParseFunctionParameterAsStr(term_str[b_idx:])
         
-        if pot_idx != 0:
-            a_idx = pot_idx - 1
-            bracket_term_a = ParseBracketsAsSuffix(term_str[0:a_idx])
+        if pot_idx == 0:
+            raise Exception("No potentiation base!")
+        
+        a_idx = pot_idx - 1
+        bracket_term_a = ParseBracketsAsSuffix(term_str[0:a_idx])
 
-             # TODO: Must either be function, constant or variable but not e^ or ^
-            if len(bracket_term_a) > 0:
-                func = Potentiation(bracket_term_a, bracket_term_b)
-            elif term_str[a_idx] == "e":
-                func = Exponential(bracket_term_b)
-            elif term_str[a_idx] == "x":
-                func = Potentiation(Variable(), bracket_term_b)
-
-
-            func = Multiplication(term_str[0:expo_idx], func)
+        if len(bracket_term_a) > 0:
+            func = Potentiation(bracket_term_a, bracket_term_b)
             func.a = ParseTerm(func.a)
-        func.a = ParseTerm(func.a)
+            func.b = ParseTerm(func.b)
+        elif term_str[a_idx] == "e":
+            func = Exponential(bracket_term_b)
+            func.a = ParseTerm(func.a)
+        elif term_str[a_idx] == "x":
+            func = Potentiation(Variable(), bracket_term_b)
+            func.b = ParseTerm(func.b)
+        else:
+            numeric_suffix = ParseConstantSuffix(term_str)
+            if numeric_suffix == 0:
+                raise Exception("Invalid potentiation base!")
+            
+            func = Potentiation(Constant(numeric_suffix), bracket_term_b)
+            func.b = ParseTerm(func.b)
+        # TODO parse functions not in a bracket but still under ^, wie ParseNextToken nur als suffix  
+        return func
+        
+    return ParseNextToken(term_str)
 
+def InsertImplicitTokens(term_str : str):
+    # TODO
 
 def ParseArgs():
     if len(sys.argv) <= 1 or sys.argv[1] == "--help":
@@ -421,6 +462,7 @@ term = ParseArgs()
 
 print("Parsed term:", term.String())
 # TODO: Fix mul. and add. order:
+# TODO: Handle exceptions
 # First, parse additions and put the a, b string terms from a+b in the addition class like: Addition(a, b)
 # Second, parse multiplication stored inside the addition class a, b string terms
 # Third, parse functions and parentheses, ln(x), e^x, (), etc. and if the functions x parameter is itself a function, then
