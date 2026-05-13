@@ -5,10 +5,10 @@ import math
 
 open_brackets = ("(", "{", "[")
 closing_brackets = (")", "}", "]")
-func_strs = ["ln"]
+func_strs = ["ln", "sqrt", "sin", "cos", "tan"]
 
 def Usage():
-    print("Accepted functions: ln(a), a^b, e^a, a+b, a*b, a, x(var)")
+    print("Accepted functions: a^b, e^a, a+b, a*b, a/b,", ", ".join(f'{s}' for s in func_strs))
     exit() 
 
 class BaseFunction:
@@ -89,15 +89,30 @@ class Addition(BaseFunction): # a+b
     def __add__(self, other):
         self.a += other
         return self
-    
+
+    def __eq__(self, other):
+        if type(other) is Addition:
+            if self.a == other.a and self.b == other.b:
+                return True
+            elif self.a == other.b and self.b == other.a:
+                return True
+        return False
+
     def String(self):
-        return ("{} + {}").format(self.a.String(), self.b.String())
+        return "{} + {}".format(self.a.String(), self.b.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
         self.b = self.b.Simplify()
         if type(self.a) is Constant and type(self.b) is Constant:
             return self.a + self.b
+
+        sin_2 = Potentiation(Sin(Variable()), Constant(2))
+        cos_2 = Potentiation(Cos(Variable()), Constant(2))
+        if self.a == sin_2 and self.b == cos_2:
+            return Constant(1)
+        if self.a == cos_2 and self.b == sin_2:
+            return Constant(1)
 
         return self
 
@@ -127,8 +142,16 @@ class Multiplication(BaseFunction): # a*b
     def __add__(self, other):
         return Addition(self, other)
     
+    def __eq__(self, other):
+        if type(other) is Multiplication:
+            if self.a == other.a and self.b == other.b:
+                return True
+            elif self.a == other.b and self.b == other.a:
+                return True
+        return False
+
     def String(self):
-        return ("{} * {}").format(self.a.String(), self.b.String())
+        return "{} * {}".format(self.a.String(), self.b.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -169,6 +192,16 @@ class Multiplication(BaseFunction): # a*b
                 return Constant(0)
             elif self.b == Constant(1):
                 return self.a
+        
+        if type(self.a) is Sin:
+            if self.b == Potentiation(Cos(self.a.a), Constant(-1)):
+                return Tan(self.a.a)
+        if type(self.a) is Cos:
+            if self.b == Potentiation(Sin(self.a.a), Constant(-1)):
+                return Potentiation(Tan(self.a.a), Constant(-1))
+            
+        if self.b == Potentiation(self.a, Constant(-1)):
+            return Constant(1)
             
         return self
 
@@ -201,8 +234,13 @@ class Potentiation(BaseFunction): # a^b
     def __add__(self, other):
         return Addition(self, other)
     
+    def __eq__(self, other):
+        if type(other) is Potentiation:
+            return self.a == other.a and self.b == other.b
+        return False
+
     def String(self):
-        return ("{}^({})").format(self.a.String(), self.b.String())
+        return "({})^({})".format(self.a.String(), self.b.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -242,9 +280,14 @@ class NaturalLog(BaseFunction): # ln(a)
     
     def __add__(self, other):
         return Addition(self, other)
-    
+
+    def __eq__(self, other):
+        if type(other) is NaturalLog:
+            return self.a == other.a
+        return False
+
     def String(self):
-        return ("ln({})").format(self.a.String())
+        return "ln({})".format(self.a.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -252,7 +295,7 @@ class NaturalLog(BaseFunction): # ln(a)
             return Constant(math.log(self.a.a))
         if type(self.a) is Exponential:
             return self.a.a
-        
+    
         return self
     
 class Exponential(BaseFunction): # e^a
@@ -273,8 +316,13 @@ class Exponential(BaseFunction): # e^a
     def __add__(self, other):
         return Addition(self, other)
     
+    def __eq__(self, other):
+        if type(other) is Exponential:
+            return self.a == other.a
+        return False
+
     def String(self):
-        return ("e^({})").format(self.a.String())
+        return "e^({})".format(self.a.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -285,8 +333,89 @@ class Exponential(BaseFunction): # e^a
         
         return self
 
-def IsBracket(c : str):
-    return c.startswith(open_brackets)
+class Sin(BaseFunction): # sin(a)
+    def __init__(self, a):
+        super().__init__(a, 0)
+
+    def Derivative(self):
+        a_diff = self.a.Derivative()
+        return Multiplication(Cos(self.a), a_diff)
+    
+    def __mul__(self, other):
+        return Multiplication(self, other)
+    
+    def __add__(self, other):
+        return Addition(self, other)
+
+    def __eq__(self, other):
+        if type(other) is Sin:
+            return self.a == other.a
+        return False
+
+    def String(self):
+        return "sin({})".format(self.a.String())
+    
+    def Simplify(self):
+        self.a = self.a.Simplify()
+        if type(self.a) is Constant:
+            return Constant(math.sin(self.a.a))
+        return self
+    
+class Cos(BaseFunction): # cos(a)
+    def __init__(self, a):
+        super().__init__(a, 0)
+
+    def Derivative(self):
+        a_diff = self.a.Derivative()
+        return Multiplication(Sin(self.a), Multiplication(Constant(-1), a_diff))
+    
+    def __mul__(self, other):
+        return Multiplication(self, other)
+    
+    def __add__(self, other):
+        return Addition(self, other)
+
+    def __eq__(self, other):
+        if type(other) is Cos:
+            return self.a == other.a
+        return False
+
+    def String(self):
+        return "cos({})".format(self.a.String())
+    
+    def Simplify(self):
+        self.a = self.a.Simplify()
+        if type(self.a) is Constant:
+            return Constant(math.cos(self.a.a))
+        return self
+
+class Tan(BaseFunction): # tan(a)
+    def __init__(self, a):
+        super().__init__(a, 0)
+
+    def Derivative(self):
+        a_diff = self.a.Derivative()
+        return Multiplication(Potentiation(Cos(self.a), Constant(-2)), a_diff)
+    
+    def __mul__(self, other):
+        return Multiplication(self, other)
+    
+    def __add__(self, other):
+        return Addition(self, other)
+
+    def __eq__(self, other):
+        if type(other) is Tan:
+            return self.a == other.a
+        return False
+
+    def String(self):
+        return "tan({})".format(self.a.String())
+    
+    def Simplify(self):
+        self.a = self.a.Simplify()
+        if type(self.a) is Constant:
+            return Constant(math.tan(self.a.a))
+        return self
 
 def FindClosingBracket(term_str : str):
     open_bracket_count = 0
@@ -332,6 +461,22 @@ def FindNextToken(term_str : str, token : str):
         idx += 1
     return -1
 
+def ParseFunctionOneParam(term_str : str, func_name : str):
+    idx = FindNextToken(term_str, func_name)
+    if idx == -1:
+        return ""
+    
+    a_idx = idx + len(func_name)
+    bracket_a_idx = a_idx + FindClosingBracket(term_str[a_idx:])
+    if bracket_a_idx == -1:
+        raise Exception("No closing bracket found: " + term_str)
+        
+    bracket_term_a = term_str[a_idx+1:bracket_a_idx]
+    if len(bracket_term_a) == 0:
+        raise Exception("Empty brackets!", term_str)
+        
+    return bracket_term_a
+
 def ParseTerm(term_str : str):
     #print("Curr term:", term_str)
 
@@ -364,6 +509,14 @@ def ParseTerm(term_str : str):
         func.a = ParseTerm(func.a)
         func.b = ParseTerm(func.b)
         return func
+
+    # Division
+    div_idx = FindNextToken(term_str, "/")
+    if div_idx != -1:
+        func = Multiplication(term_str[:div_idx], Potentiation(term_str[div_idx+1:], Constant(-1)))
+        func.a = ParseTerm(func.a)
+        func.b.a = ParseTerm(func.b.a)
+        return func
     
     # Potentiation
     pot_idx = FindNextToken(term_str, "^")
@@ -392,18 +545,37 @@ def ParseTerm(term_str : str):
         return func
     
     # Ln
-    ln_idx = FindNextToken(term_str, "ln")
-    if ln_idx != -1:
-        a_idx = ln_idx + len("ln")
-        bracket_a_idx = a_idx + FindClosingBracket(term_str[a_idx:])
-        if bracket_a_idx == -1:
-            raise Exception("No closing bracket after natural log: " + term_str)
-        
-        bracket_term_a = term_str[a_idx+1:bracket_a_idx]
-        if len(bracket_term_a) == 0:
-            raise Exception("Empty brackets at potantiation!", term_str)
-        
-        func = NaturalLog(bracket_term_a)
+    ln_bracket_term = ParseFunctionOneParam(term_str, "ln")
+    if len(ln_bracket_term) > 0:
+        func = NaturalLog(ln_bracket_term)
+        func.a = ParseTerm(func.a)
+        return func
+    
+    # Sqrt
+    sqrt_bracket_term = ParseFunctionOneParam(term_str, "sqrt")
+    if len(sqrt_bracket_term) > 0:
+        func = Potentiation(sqrt_bracket_term, Constant(0.5))
+        func.a = ParseTerm(func.a)
+        return func
+
+    # Sin
+    sin_bracket_term = ParseFunctionOneParam(term_str, "sin")
+    if len(sin_bracket_term) > 0:
+        func = Sin(sin_bracket_term)
+        func.a = ParseTerm(func.a)
+        return func
+
+    # Cos
+    cos_bracket_term = ParseFunctionOneParam(term_str, "cos")
+    if len(cos_bracket_term) > 0:
+        func = Cos(cos_bracket_term)
+        func.a = ParseTerm(func.a)
+        return func
+
+    # Tan
+    tan_bracket_term = ParseFunctionOneParam(term_str, "tan")
+    if len(tan_bracket_term) > 0:
+        func = Tan(tan_bracket_term)
         func.a = ParseTerm(func.a)
         return func
 
@@ -447,36 +619,60 @@ def NextTokenLen(term_str : str, open_brackets : tuple):
     
     for func_str in func_strs: # Find function and offset by it's length
         if term_str.startswith(func_str):
-            closing_bracket_idx = FindClosingBracket(term_str[len(func_str)+1:])
+            closing_bracket_idx = FindClosingBracket(term_str[len(func_str):])
             if closing_bracket_idx == -1:
-                raise Exception("No suitable closing bracket found!")
+                raise Exception("No suitable closing bracket found: " + term_str[len(func_str):])
             
             return len(func_str) + 1 + closing_bracket_idx
     
     raise Exception("No suitable token found before potentiation!", term_str)
 
 def IsMultiplicationApplicable(term_str : str):
-    if term_str.startswith("x"):
-        return True
-    if term_str.startswith("e"):
+    if term_str.startswith(("x", "e") + tuple(func_strs) + open_brackets):
         return True
     if term_str[0].isdigit():
         return True
-    if term_str.startswith(tuple(func_strs)):
-        return True
-    if term_str.startswith(open_brackets):
-        return True
     return False
+
+def ImplicitFunctionTwoParams(term_str : str, token : str):
+    offset = 0
+    idx = term_str.find(token)
+    while idx != -1:
+        offset = idx+1
+
+        # Brackets around a
+        new_open_bracket_idx = PrevTokenLen(term_str[:idx], closing_brackets)
+        if term_str[new_open_bracket_idx] != "(":
+            term_str = term_str[:idx] + ")" + term_str[idx:]
+            term_str = term_str[:new_open_bracket_idx] + "(" + term_str[new_open_bracket_idx:]
+            offset += 2
+
+        term_str = term_str[:new_open_bracket_idx] + "(" + term_str[new_open_bracket_idx:]
+        offset += 1
+
+        # Brackets around func(a, b)
+        closing_bracket_ab_idx = offset + NextTokenLen(term_str[offset:], open_brackets)
+
+        term_str = term_str[:closing_bracket_ab_idx] + ")" + term_str[closing_bracket_ab_idx:]
+
+        if term_str[offset] != "(":
+            term_str = term_str[:closing_bracket_ab_idx] + ")" + term_str[closing_bracket_ab_idx:]
+            term_str = term_str[:offset] + "(" + term_str[offset:]
+            offset += 2
+        
+        offset += 1
+
+        idx = term_str.find(token, offset)
+    return term_str
 
 def InsertImplicitTokens(term_str : str):
     # Implicit function parentheses
     for i in range(len(term_str)-1, 0, -1):
         for func_str in func_strs:
-            param_idx = i-2+len(func_str)
 
-            if term_str[:i].endswith(func_str) and not IsBracket(term_str[param_idx]):
-                term_str = term_str[:param_idx] + "(" + term_str[param_idx:]
-                param_idx += 1
+            if term_str[:i].endswith(func_str) and not term_str[i].startswith(open_brackets):
+                term_str = term_str[:i] + "(" + term_str[i:]
+                param_idx = i+1
 
                 closing_bracket_idx = -1
                 if term_str[param_idx] == "x":
@@ -492,34 +688,10 @@ def InsertImplicitTokens(term_str : str):
                 term_str = term_str[:closing_bracket_idx] + ")" + term_str[closing_bracket_idx:]
 
     # Implicit potentiation parentheses
-    pot_offset = 0
-    pot_idx = term_str.find("^")
-    while pot_idx != -1:
-        pot_offset = pot_idx+1
-
-        # Brackets around a
-        new_open_bracket_idx = PrevTokenLen(term_str[:pot_idx], closing_brackets)
-        if term_str[new_open_bracket_idx] != "(":
-            term_str = term_str[:pot_idx] + ")" + term_str[pot_idx:]
-            term_str = term_str[:new_open_bracket_idx] + "(" + term_str[new_open_bracket_idx:]
-            pot_offset += 2
-
-        term_str = term_str[:new_open_bracket_idx] + "(" + term_str[new_open_bracket_idx:]
-        pot_offset += 1
-
-        # Brackets around a^b
-        closing_bracket_ab_idx = pot_offset + NextTokenLen(term_str[pot_offset:], open_brackets)
-
-        term_str = term_str[:closing_bracket_ab_idx] + ")" + term_str[closing_bracket_ab_idx:]
-
-        if term_str[pot_offset] != "(":
-            term_str = term_str[:closing_bracket_ab_idx] + ")" + term_str[closing_bracket_ab_idx:]
-            term_str = term_str[:pot_offset] + "(" + term_str[pot_offset:]
-            pot_offset += 2
-        
-        pot_offset += 1
-
-        pot_idx = term_str.find("^", pot_offset)
+    term_str = ImplicitFunctionTwoParams(term_str, "^")
+    
+    # Implicit division parentheses
+    term_str = ImplicitFunctionTwoParams(term_str, "/")
     
     # Implicit multiplication
     mul_insertion_indicies = SortedSet()
@@ -579,4 +751,4 @@ print(term.String())
 term = term.Simplify()
 print("Simplified:", term.String())
 
-# TODO: Treat e as a constant so (4e)^b works. Add sqrt, sin, cos, tan, asin etc.
+# TODO: Treat e as a constant so (4e)^b works. Add asin etc.
