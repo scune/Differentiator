@@ -1,5 +1,11 @@
 import sys
 from itertools import takewhile
+from sortedcontainers import SortedSet
+import math
+
+open_brackets = ("(", "{", "[")
+closing_brackets = (")", "}", "]")
+func_strs = ["ln"]
 
 def Usage():
     print("Accepted functions: ln(a), a^b, e^a, a+b, a*b, a, x(var)")
@@ -22,14 +28,14 @@ class Constant(BaseFunction): # a
             new_a = self.a * other.a
             return Constant(new_a)        
         else:
-            print("Constant mul with", type(other), "!!!!!!!!!!!!!!!!")
+            raise Exception("Constant mul. with: " + str(type(other)))
         
     def __add__(self, other):
         if type(other) == Constant:
             new_a = self.a + other.a
             return Constant(new_a)
         else:
-            print("Constant added with", type(other), "!!!!!!!!!!!!!!!!")
+            raise Exception("Constant add. with: " + str(type(other)))
     
     def __eq__(self, other):
         if type(other) is Constant:
@@ -171,6 +177,11 @@ class Potentiation(BaseFunction): # a^b
         super().__init__(a, b)
 
     def Derivative(self):
+        if type(self.a) is Variable and type(self.b) is Variable:
+            return Multiplication(self, NaturalLog(Addition(Variable(), Constant(1))))
+        elif type(self.b) is Variable:
+            return Multiplication(self, NaturalLog(self.a))
+
         old_b = self.b
         new_b = old_b + Constant(-1)
         if new_b == Constant(0) or self.a == Constant(1):
@@ -195,14 +206,17 @@ class Potentiation(BaseFunction): # a^b
     
     def Simplify(self):
         self.a = self.a.Simplify()
+        self.b = self.b.Simplify()
+
+        if type(self.a) is Constant and type(self.b) is Constant:
+            return Constant(self.a.a ** self.b.a)
+        
         if type(self.a) is Constant:
             if self.a == Constant(0):
                 return Constant(0)
             if self.a == Constant(1):
                 return Constant(1)
-        
-        self.b = self.b.Simplify()
-        if type(self.b) is Constant:
+        elif type(self.b) is Constant:
             if self.b == Constant(0):
                 return Constant(1)
             if self.b == Constant(1):
@@ -234,8 +248,8 @@ class NaturalLog(BaseFunction): # ln(a)
     
     def Simplify(self):
         self.a = self.a.Simplify()
-        if self.a == Constant(1):
-            return Constant(0)
+        if type(self.a) is Constant:
+            return Constant(math.log(self.a.a))
         if type(self.a) is Exponential:
             return self.a.a
         
@@ -264,129 +278,17 @@ class Exponential(BaseFunction): # e^a
     
     def Simplify(self):
         self.a = self.a.Simplify()
-        if self.a == Constant(0):
-            return Constant(1)
+        if type(self.a) is Constant:
+            return Constant(math.exp(self.a.a))
         if type(self.a) is NaturalLog:
             return self.a.a
         
         return self
 
-def ParseBracketsAsPrefix(term_str : str):
-    open_brackets = [ "(", "{", "[" ]
-    closing_brackets = [ ")", "}", "]" ]
-
-    for i, open_bracket in enumerate(open_brackets):
-        if term_str.startswith(open_bracket):
-            closing_bracket_idx = term_str.find(closing_brackets[i])
-            bracket_term_str = term_str[1:closing_bracket_idx]
-            return bracket_term_str
-    
-    return ""
-
-def ParseBracketsAsSuffix(term_str : str):
-    open_brackets = [ "(", "{", "[" ]
-    closing_brackets = [ ")", "}", "]" ]
-
-    for i, closing_bracket in enumerate(closing_brackets):
-        if term_str.endswith(closing_bracket):
-            open_bracket_idx = term_str.find(open_brackets[i])
-            bracket_term_str = term_str[open_bracket_idx+1:-2]
-            return bracket_term_str
-    
-    return ""
-
-def ParseConstantPrefix(term_str : str):
-    numeric_substr = ''.join(takewhile(str.isdigit, term_str))
-    return float(numeric_substr)
-
-def ParseConstantSuffix(term_str : str):
-    numeric_substr_len = 0
-    for i in range(len(term_str)-1, -1, -1):
-        if not term_str[i].isdigit():
-            break
-        numeric_substr_len += 1
-    
-    if numeric_substr_len > 0:
-        return ParseConstantPrefix(term_str[len(term_str)-numeric_substr_len-1:])
-    return ""
-
-def IsInBrackets(term_str : str, idx : int):
-    bracket_count = term_str.count(")", 0, idx)
-    bracket_count += term_str.count("}", 0, idx)
-    bracket_count += term_str.count("]", 0, idx)
-    return (bracket_count % 2 == 1)
-
-def FindNextToken(term_str : str, token : str):
-    idx = 0
-    while idx < len(term_str) and idx != -1:
-        idx = term_str.find(token, idx)
-        if not IsInBrackets(term_str, idx):
-            return idx
-        idx += 1
-    return -1
-
-def ParseTerm(term_str : str):
-    func = BaseFunction("", "")
-    if len(term_str) == 0:
-        return func
-
-    add_idx = FindNextToken(term_str, "+")
-    if add_idx != -1:
-        func = Addition(term_str[0:add_idx], term_str[0:add_idx+1])
-        func.a = ParseTerm(func.a)
-        func.b = ParseTerm(func.b)
-        return func
-
-    mul_idx = FindNextToken(term_str, "*")
-    if mul_idx != -1:
-        func = Multiplication(term_str[0:mul_idx], term_str[0:mul_idx+1])
-        func.a = ParseTerm(func.a)
-        func.b = ParseTerm(func.b)
-        return func
-    
-    # Functions
-    pot_idx = FindNextToken(term_str, "^")
-    if pot_idx != -1:
-        b_idx = pot_idx + len("^")
-        bracket_term_b = ParseBracketsAsPrefix(term_str[b_idx:])
-        if len(bracket_term_b) == 0:
-            bracket_term_b = ParseFunctionParameterAsStr(term_str[b_idx:])
-        
-        if pot_idx == 0:
-            raise Exception("No potentiation base!")
-        
-        a_idx = pot_idx - 1
-        bracket_term_a = ParseBracketsAsSuffix(term_str[0:a_idx])
-
-        if len(bracket_term_a) > 0:
-            func = Potentiation(bracket_term_a, bracket_term_b)
-            func.a = ParseTerm(func.a)
-            func.b = ParseTerm(func.b)
-        elif term_str[a_idx] == "e":
-            func = Exponential(bracket_term_b)
-            func.a = ParseTerm(func.a)
-        elif term_str[a_idx] == "x":
-            func = Potentiation(Variable(), bracket_term_b)
-            func.b = ParseTerm(func.b)
-        else:
-            numeric_suffix = ParseConstantSuffix(term_str)
-            if numeric_suffix == 0:
-                raise Exception("Invalid potentiation base!")
-            
-            func = Potentiation(Constant(numeric_suffix), bracket_term_b)
-            func.b = ParseTerm(func.b)
-        # TODO parse functions not in a bracket but still under ^, wie ParseNextToken nur als suffix  
-        return func
-        
-    return ParseNextToken(term_str)
-
 def IsBracket(c : str):
-    open_brackets = ("(", "{", "[")
     return c.startswith(open_brackets)
 
 def FindClosingBracket(term_str : str):
-    open_brackets = ("(", "{", "[")
-    closing_brackets = (")", "}", "]")
     open_bracket_count = 0
     closing_bracket_count = 0
     for i in range(0, len(term_str)):
@@ -399,8 +301,6 @@ def FindClosingBracket(term_str : str):
     return -1
 
 def FindOpenBracket(term_str : str):
-    open_brackets = ("(", "{", "[")
-    closing_brackets = (")", "}", "]")
     open_bracket_count = 0
     closing_bracket_count = 0
     for i in range(len(term_str)-1, -1, -1):
@@ -412,7 +312,104 @@ def FindOpenBracket(term_str : str):
             closing_bracket_count += 1
     return -1
 
-def PrevTokenLen(term_str : str, closing_brackets : tuple, func_strs : list):
+def IsInBrackets(term_str : str, idx):
+    bracket_count = 0
+    for open_bracket in open_brackets:
+        bracket_count += term_str.count(open_bracket, 0, idx)
+    for closing_bracket in closing_brackets:
+        bracket_count -= term_str.count(closing_bracket, 0, idx)
+    return bracket_count > 0
+
+def FindNextToken(term_str : str, token : str):
+    idx = 0
+    while idx < len(term_str):
+        idx = term_str.find(token, idx)
+        if idx == -1:
+            break
+
+        if not IsInBrackets(term_str, idx):
+            return idx
+        idx += 1
+    return -1
+
+def ParseTerm(term_str : str):
+    #print("Curr term:", term_str)
+
+    func = BaseFunction("", "")
+    if len(term_str) == 0:
+        raise Exception("Empty term!")
+
+    if term_str.isnumeric(): # Constant
+        return Constant(float(term_str))
+    elif term_str == "x": # Variable
+        return Variable()
+
+    # If whole term_str is brackets
+    if term_str.startswith(open_brackets):
+        if FindClosingBracket(term_str) == len(term_str)-1:
+            return ParseTerm(term_str[1:-1])
+
+    # Addition
+    add_idx = FindNextToken(term_str, "+")
+    if add_idx != -1:
+        func = Addition(term_str[:add_idx], term_str[add_idx+1:])
+        func.a = ParseTerm(func.a)
+        func.b = ParseTerm(func.b)
+        return func
+
+    # Multiplication
+    mul_idx = FindNextToken(term_str, "*")
+    if mul_idx != -1:
+        func = Multiplication(term_str[:mul_idx], term_str[mul_idx+1:])
+        func.a = ParseTerm(func.a)
+        func.b = ParseTerm(func.b)
+        return func
+    
+    # Potentiation
+    pot_idx = FindNextToken(term_str, "^")
+    if pot_idx != -1:
+        b_idx = pot_idx + len("^")
+        bracket_b_idx = b_idx + FindClosingBracket(term_str[b_idx:])
+        if bracket_b_idx == -1:
+            raise Exception("Empty bracket after potantiation!", term_str[b_idx:])
+        
+        bracket_a_idx = FindOpenBracket(term_str[:pot_idx])
+        if bracket_a_idx == -1:
+            raise Exception("Empty bracket before potantiation!", term_str[:pot_idx])
+
+        bracket_term_a = term_str[bracket_a_idx+1:pot_idx-1]
+        bracket_term_b = term_str[b_idx+1:bracket_b_idx]
+        if len(bracket_term_a) == 0 or len(bracket_term_b) == 0:
+            raise Exception("Empty brackets at potantiation: " + term_str)
+
+        if bracket_term_a == "e": # TODO support (3*e)^b
+            func = Exponential(bracket_term_b)
+            func.a = ParseTerm(func.a)
+        else:
+            func = Potentiation(bracket_term_a, bracket_term_b)
+            func.a = ParseTerm(func.a)
+            func.b = ParseTerm(func.b)
+        return func
+    
+    # Ln
+    ln_idx = FindNextToken(term_str, "ln")
+    if ln_idx != -1:
+        a_idx = ln_idx + len("ln")
+        bracket_a_idx = a_idx + FindClosingBracket(term_str[a_idx:])
+        if bracket_a_idx == -1:
+            raise Exception("No closing bracket after natural log: " + term_str)
+        
+        bracket_term_a = term_str[a_idx+1:bracket_a_idx]
+        if len(bracket_term_a) == 0:
+            raise Exception("Empty brackets at potantiation!", term_str)
+        
+        func = NaturalLog(bracket_term_a)
+        func.a = ParseTerm(func.a)
+        return func
+
+    raise Exception("No token found!", term_str)
+
+def PrevTokenLen(term_str : str, closing_brackets : tuple):
     if term_str.endswith(closing_brackets): # Left token is function
         open_bracket_idx = FindOpenBracket(term_str)
 
@@ -436,7 +433,7 @@ def PrevTokenLen(term_str : str, closing_brackets : tuple, func_strs : list):
     
     raise Exception("No suitable token found before potentiation!", term_str)
 
-def NextTokenLen(term_str : str, open_brackets : tuple, func_strs : list):
+def NextTokenLen(term_str : str, open_brackets : tuple):
     if term_str.startswith(open_brackets):
         closing_bracket_idx = FindClosingBracket(term_str)
         if closing_bracket_idx == -1:
@@ -458,7 +455,7 @@ def NextTokenLen(term_str : str, open_brackets : tuple, func_strs : list):
     
     raise Exception("No suitable token found before potentiation!", term_str)
 
-def IsMultiplicationApplicable(term_str : str, func_strs : list, open_brackets : tuple):
+def IsMultiplicationApplicable(term_str : str):
     if term_str.startswith("x"):
         return True
     if term_str.startswith("e"):
@@ -471,7 +468,7 @@ def IsMultiplicationApplicable(term_str : str, func_strs : list, open_brackets :
         return True
     return False
 
-def InsertImplicitTokens(term_str : str, func_strs : list):
+def InsertImplicitTokens(term_str : str):
     # Implicit function parentheses
     for i in range(len(term_str)-1, 0, -1):
         for func_str in func_strs:
@@ -495,16 +492,13 @@ def InsertImplicitTokens(term_str : str, func_strs : list):
                 term_str = term_str[:closing_bracket_idx] + ")" + term_str[closing_bracket_idx:]
 
     # Implicit potentiation parentheses
-    open_brackets = ("(", "{", "[")
-    closing_brackets = (")", "}", "]")
-
     pot_offset = 0
     pot_idx = term_str.find("^")
     while pot_idx != -1:
         pot_offset = pot_idx+1
 
         # Brackets around a
-        new_open_bracket_idx = PrevTokenLen(term_str[:pot_idx], closing_brackets, func_strs)
+        new_open_bracket_idx = PrevTokenLen(term_str[:pot_idx], closing_brackets)
         if term_str[new_open_bracket_idx] != "(":
             term_str = term_str[:pot_idx] + ")" + term_str[pot_idx:]
             term_str = term_str[:new_open_bracket_idx] + "(" + term_str[new_open_bracket_idx:]
@@ -514,7 +508,7 @@ def InsertImplicitTokens(term_str : str, func_strs : list):
         pot_offset += 1
 
         # Brackets around a^b
-        closing_bracket_ab_idx = pot_offset + NextTokenLen(term_str[pot_offset:], open_brackets, func_strs)
+        closing_bracket_ab_idx = pot_offset + NextTokenLen(term_str[pot_offset:], open_brackets)
 
         term_str = term_str[:closing_bracket_ab_idx] + ")" + term_str[closing_bracket_ab_idx:]
 
@@ -526,23 +520,27 @@ def InsertImplicitTokens(term_str : str, func_strs : list):
         pot_offset += 1
 
         pot_idx = term_str.find("^", pot_offset)
-
-    print(term_str)
     
     # Implicit multiplication
+    mul_insertion_indicies = SortedSet()
     for i in range(0, len(term_str)-1):
         mul_idx = -1
 
         if term_str[i] == "x" or term_str[i].startswith(closing_brackets):
-            if IsMultiplicationApplicable(term_str[i+1:], func_strs, open_brackets):
+            if IsMultiplicationApplicable(term_str[i+1:]):
                 mul_idx = i+1
         elif term_str[i].isdigit():
             numeric_substr_len = 1 + len(''.join(takewhile(str.isdigit, term_str[i+1:])))
-            if IsMultiplicationApplicable(term_str[i+numeric_substr_len:], func_strs, open_brackets):
+
+            if IsMultiplicationApplicable(term_str[i+numeric_substr_len:]):
                 mul_idx = i+numeric_substr_len
         
         if mul_idx != -1:
-            term_str = term_str[:mul_idx] + "*" + term_str[mul_idx:]
+            mul_insertion_indicies.add(mul_idx)
+
+    for i, indices in enumerate(mul_insertion_indicies):
+        indices += i
+        term_str = term_str[:indices] + "*" + term_str[indices:]
             
     return term_str
 
@@ -552,13 +550,10 @@ def ParseArgs():
 
     term_str = sys.argv[1]
 
-    # Remove spaces
-    term_str = term_str.replace(" ", "")
-
-    func_strs = ["ln"]
+    term_str = term_str.replace(" ", "") # Remove spaces
 
     try:
-        term_str = InsertImplicitTokens(term_str, func_strs)
+        term_str = InsertImplicitTokens(term_str)
         print("Parsed res:", term_str)
     except Exception as exc:
         print("Error while parsing implicit tokens:", exc)
@@ -569,8 +564,6 @@ def ParseArgs():
     except Exception as exc:
         print("Error while parsing to internal functions:", exc)
         exit(-1)
-
-    exit(0)
 
 term = ParseArgs()
 
@@ -585,3 +578,5 @@ print(term.String())
 
 term = term.Simplify()
 print("Simplified:", term.String())
+
+# TODO: Treat e as a constant so (4e)^b works. Add sqrt, sin, cos, tan, asin etc.
