@@ -24,18 +24,16 @@ class Constant(BaseFunction): # a
         return self
     
     def __mul__(self, other):
-        if type(other) == Constant:
+        if type(other) is Constant:
             new_a = self.a * other.a
-            return Constant(new_a)        
-        else:
-            raise Exception("Constant mul. with: " + str(type(other)))
+            return Constant(new_a)
+        return Multiplication(self, other)
         
     def __add__(self, other):
-        if type(other) == Constant:
+        if type(other) is Constant:
             new_a = self.a + other.a
             return Constant(new_a)
-        else:
-            raise Exception("Constant add. with: " + str(type(other)))
+        return Addition(self, other)
     
     def __eq__(self, other):
         if type(other) is Constant:
@@ -43,10 +41,33 @@ class Constant(BaseFunction): # a
         return False
 
     def String(self):
-        return self.a
+        return str(self.a)
     
     def Simplify(self):
         return self
+
+class EulerConstant(Constant):
+    def __init__(self):
+        super().__init__(math.e)
+
+    def Derivative(self):
+        return self
+
+    def __mul__(self, other):
+        if type(other) is EulerConstant:
+            return Potentiation(EulerConstant(), Constant(2))
+        return Multiplication(self, other)
+        
+    def __add__(self, other):
+        if type(other) is EulerConstant:
+            return Multiplication(EulerConstant(), Constant(2))
+        return Addition(self, other)
+    
+    def __eq__(self, other):
+        return type(other) is EulerConstant
+
+    def String(self):
+        return "e"
 
 class Variable(BaseFunction): # x
     def __init__(self):
@@ -79,6 +100,15 @@ class Addition(BaseFunction): # a+b
         super().__init__(a, b)
     
     def Derivative(self):
+        if isinstance(self.a, Constant) and isinstance(self.b, Constant):
+            return Constant(0)
+
+        b_diff = self.b.Derivative()
+        if isinstance(self.a, Constant):
+            return b_diff
+        a_diff = self.a.Derivative()
+        if isinstance(self.b, Constant):
+            return a_diff
         return Addition(self.a.Derivative(), self.b.Derivative())
 
     def __mul__(self, other):
@@ -99,7 +129,7 @@ class Addition(BaseFunction): # a+b
         return False
 
     def String(self):
-        return "{} + {}".format(self.a.String(), self.b.String())
+        return "({} + {})".format(self.a.String(), self.b.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -125,7 +155,7 @@ class Multiplication(BaseFunction): # a*b
         old_b = self.b
         a_diff = old_a.Derivative()
         b_diff = old_b.Derivative()
-        if type(self.a) is Constant or type(self.b) is Constant:
+        if isinstance(self.a, Constant) or isinstance(self.b, Constant):
             return Multiplication(a_diff, b_diff)
         if type(self.a) is Variable or type(self.b) is Variable:
             return Multiplication(a_diff, b_diff)
@@ -151,6 +181,9 @@ class Multiplication(BaseFunction): # a*b
         return False
 
     def String(self):
+        if type(self.b) is Potentiation and self.b.b == Constant(-1):
+            return "{}/{}".format(self.a.String(), self.b.a.String())
+
         return "{} * {}".format(self.a.String(), self.b.String())
     
     def Simplify(self):
@@ -165,10 +198,6 @@ class Multiplication(BaseFunction): # a*b
                 self.a = Potentiation(self.a.a, Addition(self.a.b, self.b.b))
                 return self.a.Simplify()
             
-        elif type(self.a) is Exponential and type(self.b) is Exponential:
-            self.a.a += self.b.a
-            return self.a.Simplify()
-        
         elif type(self.a) is Potentiation:
             if type(self.a.a) is type(self.b):
                 if self.a.a == self.b:
@@ -210,6 +239,9 @@ class Potentiation(BaseFunction): # a^b
         super().__init__(a, b)
 
     def Derivative(self):
+        if self.a == EulerConstant() and self.b == Variable():
+            return self
+
         if type(self.a) is Variable and type(self.b) is Variable:
             return Multiplication(self, NaturalLog(Addition(Variable(), Constant(1))))
         elif type(self.b) is Variable:
@@ -240,7 +272,9 @@ class Potentiation(BaseFunction): # a^b
         return False
 
     def String(self):
-        return "({})^({})".format(self.a.String(), self.b.String())
+        if self.b == Constant(-1):
+            return "1/{}".format(self.a.String())
+        return "{}^{}".format(self.a.String(), self.b.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -258,11 +292,14 @@ class Potentiation(BaseFunction): # a^b
             if self.b == Constant(0):
                 return Constant(1)
             if self.b == Constant(1):
-                return self.b
+                return self.a
         
         if type(self.a) is Potentiation and type(self.b) is Constant:
             self.a = Potentiation(self.a.a, Multiplication(self.a.b, self.b))
             return self.a.Simplify()
+        
+        if self.a == EulerConstant() and type(self.b) is NaturalLog:
+            return self.b.a
         
         return self
 
@@ -293,44 +330,11 @@ class NaturalLog(BaseFunction): # ln(a)
         self.a = self.a.Simplify()
         if type(self.a) is Constant:
             return Constant(math.log(self.a.a))
-        if type(self.a) is Exponential:
-            return self.a.a
-    
-        return self
-    
-class Exponential(BaseFunction): # e^a
-    def __init__(self, a):
-        super().__init__(a, 0)
-
-    def Derivative(self):
-        if type(self.a) is Constant or type(self.a) is Variable:
-            return self
-        new_a = self.a.Derivative()
-        return Multiplication(new_a, self)
-    
-    def __mul__(self, other):
-        if type(other) is Exponential:
-            return Exponential(self.a + other.a)
-        return Multiplication(self, other)
-    
-    def __add__(self, other):
-        return Addition(self, other)
-    
-    def __eq__(self, other):
-        if type(other) is Exponential:
-            return self.a == other.a
-        return False
-
-    def String(self):
-        return "e^({})".format(self.a.String())
-    
-    def Simplify(self):
-        self.a = self.a.Simplify()
-        if type(self.a) is Constant:
-            return Constant(math.exp(self.a.a))
-        if type(self.a) is NaturalLog:
-            return self.a.a
         
+        if type(self.a) is Potentiation:
+            if type(self.a.a) is EulerConstant:
+                return self.a.b
+    
         return self
 
 class Sin(BaseFunction): # sin(a)
@@ -488,6 +492,8 @@ def ParseTerm(term_str : str):
         return Constant(float(term_str))
     elif term_str == "x": # Variable
         return Variable()
+    elif term_str == "e": # e
+        return EulerConstant()
 
     # If whole term_str is brackets
     if term_str.startswith(open_brackets):
@@ -535,9 +541,9 @@ def ParseTerm(term_str : str):
         if len(bracket_term_a) == 0 or len(bracket_term_b) == 0:
             raise Exception("Empty brackets at potantiation: " + term_str)
 
-        if bracket_term_a == "e": # TODO support (3*e)^b
-            func = Exponential(bracket_term_b)
-            func.a = ParseTerm(func.a)
+        if bracket_term_a == "e":
+            func = Potentiation(EulerConstant(), bracket_term_b)
+            func.b = ParseTerm(func.b)
         else:
             func = Potentiation(bracket_term_a, bracket_term_b)
             func.a = ParseTerm(func.a)
@@ -603,7 +609,7 @@ def PrevTokenLen(term_str : str, closing_brackets : tuple):
             new_open_bracket_idx = i
         return new_open_bracket_idx
     
-    raise Exception("No suitable token found before potentiation!", term_str)
+    raise Exception("No suitable token found before function!", term_str)
 
 def NextTokenLen(term_str : str, open_brackets : tuple):
     if term_str.startswith(open_brackets):
@@ -612,7 +618,7 @@ def NextTokenLen(term_str : str, open_brackets : tuple):
             raise Exception("No suitable closing bracket found!")
         
         return closing_bracket_idx
-    elif term_str.startswith("x") or term_str.startswith("x"):
+    elif term_str.startswith("x") or term_str.startswith("e"):
         return 1
     elif term_str[0].isdigit():
         return len(''.join(takewhile(str.isdigit, term_str)))
@@ -625,7 +631,7 @@ def NextTokenLen(term_str : str, open_brackets : tuple):
             
             return len(func_str) + 1 + closing_bracket_idx
     
-    raise Exception("No suitable token found before potentiation!", term_str)
+    raise Exception("No suitable token found before function!", term_str)
 
 def IsMultiplicationApplicable(term_str : str):
     if term_str.startswith(("x", "e") + tuple(func_strs) + open_brackets):
@@ -748,7 +754,13 @@ print("d/dx[", term.String(), "] =")
 term = term.Derivative()
 print(term.String())
 
-term = term.Simplify()
-print("Simplified:", term.String())
+def RmOuterBrackets(term_str : str):
+    if term_str.startswith(open_brackets):
+        if FindClosingBracket(term_str) == len(term_str)-1:
+            return term_str[1:-1]
+    return term_str
 
-# TODO: Treat e as a constant so (4e)^b works. Add asin etc.
+term = term.Simplify()
+print("Simplified:", RmOuterBrackets(term.String()))
+
+# TODO: If no variable that is differentiated in term then set to 0. Add asin etc.
