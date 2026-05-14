@@ -1,20 +1,36 @@
 import sys
 from itertools import takewhile
 from sortedcontainers import SortedSet
-import math
+import matplotlib.pyplot as plt
+import numpy as np
 
 open_brackets = ("(", "{", "[")
 closing_brackets = (")", "}", "]")
 func_strs = ["ln", "sqrt", "sin", "cos", "tan"]
+interval = [float(-10), float(10)]
+y_cutoff = [float(-10), float(10)]
 
 def Usage():
-    print("Accepted functions: a^b, e^a, a+b, a*b, a/b,", ", ".join(f'{s}' for s in func_strs))
+    print("Usage:")
+    print("Accepted functions: a^b, e^a, a+b, a*b, a/b,", ", ".join(f'{s}' for s in func_strs) + ".")
+    print("Optional function domain interval [a, b] specification for plotting via -a{Float} and -b{Float}")
+    print("and the same for the y cutoff with -ya{Float} and -yb{Float}, where a < b for both.")
     exit() 
+
+def IsNumeric(string : str):
+    try:
+        float(string)
+        return True
+    except ValueError:
+        return False
 
 class BaseFunction:
     def __init__(self, a, b):
         self.a = a
         self.b = b
+    
+    def ContainsVariable(self):
+        return self.a.ContainsVariable()
 
 class Constant(BaseFunction): # a
     def __init__(self, a):
@@ -46,9 +62,15 @@ class Constant(BaseFunction): # a
     def Simplify(self):
         return self
 
+    def Plot(self, x):
+        return self.a
+    
+    def ContainsVariable(self):
+        return False
+
 class EulerConstant(Constant):
     def __init__(self):
-        super().__init__(math.e)
+        super().__init__(np.e)
 
     def Derivative(self):
         return self
@@ -68,6 +90,9 @@ class EulerConstant(Constant):
 
     def String(self):
         return "e"
+    
+    def Plot(self, x):
+        return self.a
 
 class Variable(BaseFunction): # x
     def __init__(self):
@@ -94,21 +119,28 @@ class Variable(BaseFunction): # x
     
     def Simplify(self):
         return self
+    
+    def Plot(self, x):
+        return x
+    
+    def ContainsVariable(self):
+        return True
 
 class Addition(BaseFunction): # a+b
     def __init__(self, a, b):
         super().__init__(a, b)
     
     def Derivative(self):
-        if isinstance(self.a, Constant) and isinstance(self.b, Constant):
+        if not self.a.ContainsVariable() and not self.b.ContainsVariable():
             return Constant(0)
 
         b_diff = self.b.Derivative()
-        if isinstance(self.a, Constant):
+        if not self.a.ContainsVariable():
             return b_diff
         a_diff = self.a.Derivative()
-        if isinstance(self.b, Constant):
+        if not self.b.ContainsVariable():
             return a_diff
+        
         return Addition(self.a.Derivative(), self.b.Derivative())
 
     def __mul__(self, other):
@@ -145,23 +177,31 @@ class Addition(BaseFunction): # a+b
             return Constant(1)
 
         return self
+    
+    def Plot(self, x):
+        return self.a.Plot(x) + self.b.Plot(x)
+    
+    def ContainsVariable(self):
+        return self.a.ContainsVariable() or self.b.ContainsVariable()
 
 class Multiplication(BaseFunction): # a*b
     def __init__(self, a, b):
         super().__init__(a, b)
 
     def Derivative(self):
-        old_a = self.a
-        old_b = self.b
-        a_diff = old_a.Derivative()
-        b_diff = old_b.Derivative()
-        if isinstance(self.a, Constant) or isinstance(self.b, Constant):
-            return Multiplication(a_diff, b_diff)
-        if type(self.a) is Variable or type(self.b) is Variable:
-            return Multiplication(a_diff, b_diff)
+        if not self.a.ContainsVariable() and not self.b.ContainsVariable():
+            return self
         
-        return Addition(Multiplication(a_diff, old_b),
-                        Multiplication(old_a, b_diff))
+        b_diff = self.b.Derivative()
+        if not self.a.ContainsVariable():
+            return Multiplication(self.a, b_diff)
+    
+        a_diff = self.a.Derivative()
+        if not self.b.ContainsVariable():
+            return Multiplication(a_diff, self.b)
+
+        return Addition(Multiplication(a_diff, self.b),
+                        Multiplication(self.a, b_diff))
 
     def __mul__(self, other):
         if type(other) is Multiplication:
@@ -233,28 +273,35 @@ class Multiplication(BaseFunction): # a*b
             return Constant(1)
             
         return self
+    
+    def Plot(self, x):
+        return self.a.Plot(x) * self.b.Plot(x)
+    
+    def ContainsVariable(self):
+        return self.a.ContainsVariable() or self.b.ContainsVariable()
 
 class Potentiation(BaseFunction): # a^b
     def __init__(self, a, b):
         super().__init__(a, b)
 
     def Derivative(self):
-        if self.a == EulerConstant() and self.b == Variable():
+        if type(self.a) is EulerConstant and type(self.b) is Variable:
             return self
 
-        if type(self.a) is Variable and type(self.b) is Variable:
-            return Multiplication(self, NaturalLog(Addition(Variable(), Constant(1))))
-        elif type(self.b) is Variable:
-            return Multiplication(self, NaturalLog(self.a))
+        if type(self.a) is not EulerConstant:
+            if self.b.ContainsVariable():
+                new_func = Potentiation(EulerConstant(), Multiplication(self.b, NaturalLog(self.a)))
+                return new_func.Derivative()
 
-        old_b = self.b
-        new_b = old_b + Constant(-1)
-        if new_b == Constant(0) or self.a == Constant(1):
-            return Constant(1)
-        elif self.a == Constant(0):
-            return Constant(0)
-        old_a = self.a
-        return Multiplication(old_b, Multiplication(Potentiation(self.a, new_b), old_a.Derivative()))
+        if not self.a.ContainsVariable() and not self.b.ContainsVariable():
+            return self
+
+        if isinstance(self.b, Constant):
+            old_b = self.b
+            new_b = old_b + Constant(-1)
+            return Multiplication(self.b, Potentiation(self.a, new_b))
+        
+        return Multiplication(self, self.b.Derivative())
 
     def __mul__(self, other):
         if type(other) is Potentiation:
@@ -273,8 +320,8 @@ class Potentiation(BaseFunction): # a^b
 
     def String(self):
         if self.b == Constant(-1):
-            return "1/{}".format(self.a.String())
-        return "{}^{}".format(self.a.String(), self.b.String())
+            return "1/({})".format(self.a.String())
+        return "({})^({})".format(self.a.String(), self.b.String())
     
     def Simplify(self):
         self.a = self.a.Simplify()
@@ -298,16 +345,31 @@ class Potentiation(BaseFunction): # a^b
             self.a = Potentiation(self.a.a, Multiplication(self.a.b, self.b))
             return self.a.Simplify()
         
-        if self.a == EulerConstant() and type(self.b) is NaturalLog:
-            return self.b.a
+        if self.a == EulerConstant():
+            if type(self.b) is NaturalLog:
+                return self.b.a
+            if type(self.b) is Multiplication:
+                if type(self.b.a) is NaturalLog:
+                    return Potentiation(self.b.b, self.b.a.a)
+                if type(self.b.b) is NaturalLog:
+                    return Potentiation(self.b.a, self.b.b.a)
         
         return self
+
+    def Plot(self, x):
+        return np.pow(self.a.Plot(x), self.b.Plot(x))
+
+    def ContainsVariable(self):
+        return self.a.ContainsVariable() or self.b.ContainsVariable()
 
 class NaturalLog(BaseFunction): # ln(a)
     def __init__(self, a):
         super().__init__(a, 0)
         
     def Derivative(self):
+        if not self.a.ContainsVariable():
+            return self
+
         new_a = self.a
         new_a = new_a.Derivative()
         return Multiplication(Potentiation(self.a, Constant(-1)), new_a)
@@ -328,20 +390,23 @@ class NaturalLog(BaseFunction): # ln(a)
     
     def Simplify(self):
         self.a = self.a.Simplify()
-        if type(self.a) is Constant:
-            return Constant(math.log(self.a.a))
-        
         if type(self.a) is Potentiation:
             if type(self.a.a) is EulerConstant:
                 return self.a.b
     
         return self
+    
+    def Plot(self, x):
+        return np.log(self.a.Plot(x))
 
 class Sin(BaseFunction): # sin(a)
     def __init__(self, a):
         super().__init__(a, 0)
 
     def Derivative(self):
+        if not self.a.ContainsVariable():
+            return self
+
         a_diff = self.a.Derivative()
         return Multiplication(Cos(self.a), a_diff)
     
@@ -361,15 +426,19 @@ class Sin(BaseFunction): # sin(a)
     
     def Simplify(self):
         self.a = self.a.Simplify()
-        if type(self.a) is Constant:
-            return Constant(math.sin(self.a.a))
         return self
+
+    def Plot(self, x):
+        return np.sin(self.a.Plot(x))
     
 class Cos(BaseFunction): # cos(a)
     def __init__(self, a):
         super().__init__(a, 0)
 
     def Derivative(self):
+        if not self.a.ContainsVariable():
+            return self
+
         a_diff = self.a.Derivative()
         return Multiplication(Sin(self.a), Multiplication(Constant(-1), a_diff))
     
@@ -389,15 +458,19 @@ class Cos(BaseFunction): # cos(a)
     
     def Simplify(self):
         self.a = self.a.Simplify()
-        if type(self.a) is Constant:
-            return Constant(math.cos(self.a.a))
         return self
+    
+    def Plot(self, x):
+        return np.cos(self.a.Plot(x))
 
 class Tan(BaseFunction): # tan(a)
     def __init__(self, a):
         super().__init__(a, 0)
 
     def Derivative(self):
+        if not self.a.ContainsVariable():
+            return self
+
         a_diff = self.a.Derivative()
         return Multiplication(Potentiation(Cos(self.a), Constant(-2)), a_diff)
     
@@ -417,9 +490,10 @@ class Tan(BaseFunction): # tan(a)
     
     def Simplify(self):
         self.a = self.a.Simplify()
-        if type(self.a) is Constant:
-            return Constant(math.tan(self.a.a))
         return self
+
+    def Plot(self, x):
+        return np.tan(self.a.Plot(x))
 
 def FindClosingBracket(term_str : str):
     open_bracket_count = 0
@@ -488,7 +562,7 @@ def ParseTerm(term_str : str):
     if len(term_str) == 0:
         raise Exception("Empty term!")
 
-    if term_str.isnumeric(): # Constant
+    if IsNumeric(term_str): # Constant
         return Constant(float(term_str))
     elif term_str == "x": # Variable
         return Variable()
@@ -506,6 +580,16 @@ def ParseTerm(term_str : str):
         func = Addition(term_str[:add_idx], term_str[add_idx+1:])
         func.a = ParseTerm(func.a)
         func.b = ParseTerm(func.b)
+        return func
+
+    # Subtraction
+    sub_idx = FindNextToken(term_str, "-")
+    if sub_idx != -1:
+        func = Multiplication(Constant(-1), term_str[sub_idx+1:])
+        func.b = ParseTerm(func.b)
+        if sub_idx > 0:
+            func = Addition(term_str[:sub_idx], func)
+            func.a = ParseTerm(func.a)
         return func
 
     # Multiplication
@@ -585,7 +669,7 @@ def ParseTerm(term_str : str):
         func.a = ParseTerm(func.a)
         return func
 
-    raise Exception("No token found!", term_str)
+    raise Exception("No token found in: " + term_str)
 
 def PrevTokenLen(term_str : str, closing_brackets : tuple):
     if term_str.endswith(closing_brackets): # Left token is function
@@ -601,10 +685,10 @@ def PrevTokenLen(term_str : str, closing_brackets : tuple):
         return open_bracket_idx
     elif term_str.endswith("x") or term_str.endswith("e"):
         return len(term_str)-1
-    elif term_str[-1].isdigit():
+    elif IsNumeric(term_str[-1]):
         new_open_bracket_idx = len(term_str)-1
         for i in range(len(term_str)-2, -1, -1):
-            if not term_str[i].isdigit():
+            if not IsNumeric(term_str[i]):
                 break
             new_open_bracket_idx = i
         return new_open_bracket_idx
@@ -620,8 +704,8 @@ def NextTokenLen(term_str : str, open_brackets : tuple):
         return closing_bracket_idx
     elif term_str.startswith("x") or term_str.startswith("e"):
         return 1
-    elif term_str[0].isdigit():
-        return len(''.join(takewhile(str.isdigit, term_str)))
+    elif IsNumeric(term_str[0]):
+        return len(''.join(takewhile(IsNumeric, term_str)))
     
     for func_str in func_strs: # Find function and offset by it's length
         if term_str.startswith(func_str):
@@ -636,7 +720,7 @@ def NextTokenLen(term_str : str, open_brackets : tuple):
 def IsMultiplicationApplicable(term_str : str):
     if term_str.startswith(("x", "e") + tuple(func_strs) + open_brackets):
         return True
-    if term_str[0].isdigit():
+    if IsNumeric(term_str[0]):
         return True
     return False
 
@@ -683,8 +767,8 @@ def InsertImplicitTokens(term_str : str):
                 closing_bracket_idx = -1
                 if term_str[param_idx] == "x":
                     closing_bracket_idx = param_idx+1
-                elif term_str[param_idx].isdigit():
-                    numeric_substr_len = 1 + len(''.join(takewhile(str.isdigit, term_str[param_idx+1:])))
+                elif IsNumeric(term_str[param_idx]):
+                    numeric_substr_len = 1 + len(''.join(takewhile(IsNumeric, term_str[param_idx+1:])))
                     closing_bracket_idx = param_idx+numeric_substr_len
                 elif term_str[param_idx:].startswith(tuple(func_strs)):
                     closing_bracket_idx = 1 + param_idx + FindClosingBracket(term_str[param_idx:])
@@ -707,8 +791,8 @@ def InsertImplicitTokens(term_str : str):
         if term_str[i] == "x" or term_str[i].startswith(closing_brackets):
             if IsMultiplicationApplicable(term_str[i+1:]):
                 mul_idx = i+1
-        elif term_str[i].isdigit():
-            numeric_substr_len = 1 + len(''.join(takewhile(str.isdigit, term_str[i+1:])))
+        elif IsNumeric(term_str[i]):
+            numeric_substr_len = 1 + len(''.join(takewhile(IsNumeric, term_str[i+1:])))
 
             if IsMultiplicationApplicable(term_str[i+numeric_substr_len:]):
                 mul_idx = i+numeric_substr_len
@@ -726,8 +810,18 @@ def ParseArgs():
     if len(sys.argv) <= 1 or sys.argv[1] == "--help":
         Usage()
 
-    term_str = sys.argv[1]
+    if len(sys.argv) >= 3:
+        for i in range(2, len(sys.argv)):
+            if sys.argv[i].startswith("-a"):
+                interval[0] = float(sys.argv[i][2:])
+            elif sys.argv[i].startswith("-b"):
+                interval[1] = float(sys.argv[i][2:])
+            elif sys.argv[i].startswith("-ya"):
+                y_cutoff[0] = float(sys.argv[i][3:])
+            elif sys.argv[i].startswith("-yb"):
+                y_cutoff[1] = float(sys.argv[i][3:])
 
+    term_str = sys.argv[1]
     term_str = term_str.replace(" ", "") # Remove spaces
 
     try:
@@ -750,8 +844,20 @@ print("Parsed term:", term.String())
 term = term.Simplify()
 print("Simplified:", term.String())
 
+x = np.linspace(interval[0], interval[1], 10000)
+if term.ContainsVariable():
+    fig = plt.figure(figsize = (14, 8))
+    fx = term.Plot(x)
+    fx = np.ma.masked_outside(fx, y_cutoff[0], y_cutoff[1])
+    plt.plot(x, fx, 'g', label="f(x)="+term.String())
+    plt.xlim(interval)
+    plt.ylim(y_cutoff)
+
 print("d/dx[", term.String(), "] =")
-term = term.Derivative()
+if term.ContainsVariable():
+    term = term.Derivative()
+else:
+    term = Constant(0)
 print(term.String())
 
 def RmOuterBrackets(term_str : str):
@@ -763,4 +869,12 @@ def RmOuterBrackets(term_str : str):
 term = term.Simplify()
 print("Simplified:", RmOuterBrackets(term.String()))
 
-# TODO: If no variable that is differentiated in term then set to 0. Add asin etc.
+if term.ContainsVariable():
+    f_diff_x = term.Plot(x)
+    f_diff_x = np.ma.masked_outside(f_diff_x, y_cutoff[0], y_cutoff[1])
+    plt.plot(x, f_diff_x, 'r:', label="f'(x)="+term.String())
+    plt.grid(True, linestyle =':')
+    plt.legend()
+    plt.show()
+
+# TODO: If no variable that is differentiated in term then set to 0. Add asin, acos, atan, sinh, cosh, tanh, pi
