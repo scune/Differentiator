@@ -13,8 +13,9 @@ y_cutoff = [float(-10), float(10)]
 def Usage():
     print("Usage:")
     print("Accepted functions: a^b, e^a, a+b, a*b, a/b,", ", ".join(f'{s}' for s in func_strs) + ".")
+    print("Accepted bracket types:", ", ".join(f'{s0}{s1}' for s0,s1 in zip(open_brackets,closing_brackets)) + ".")
     print("Optional function domain interval [a, b] specification for plotting via -a{Float} and -b{Float}")
-    print("and the same for the y cutoff with -ya{Float} and -yb{Float}, where a < b for both.")
+    print("and the same for the y cutoff with -ya{Float} and -yb{Float}, where a < b applies for both.")
     exit() 
 
 def IsNumeric(string : str):
@@ -28,6 +29,9 @@ class BaseFunction:
     def __init__(self, a, b):
         self.a = a
         self.b = b
+
+    def GetChildren(self):
+        return []
 
 class Constant(BaseFunction): # a
     def __init__(self, a):
@@ -54,6 +58,8 @@ class Constant(BaseFunction): # a
         return False
 
     def String(self):
+        if int(self.a) == self.a:
+            return str(int(self.a))
         return str(self.a)
     
     def Simplify(self):
@@ -201,9 +207,11 @@ class Addition(BaseFunction): # a+b
                 return Constant(1)
         
         if type(self.a) is Multiplication and type(self.b) is Multiplication:
-            if self.a.a == self.b.a:
-                return Multiplication(self.a.a, Addition(self.a.b, self.b.b))
-            # TODO: Make commutative
+            for first, second in [(self.a, self.b), (self.b, self.a)]:
+                if first.a == second.a:
+                    return Multiplication(first.a, Addition(first.b, second.b))
+                elif first.a == second.b:
+                    return Multiplication(first.a, Addition(first.b, second.a))
 
         return self
     
@@ -212,6 +220,9 @@ class Addition(BaseFunction): # a+b
     
     def Contains(self, other):
         return self.a.Contains(other) or self.b.Contains(other)
+    
+    def GetChildren(self):
+        return [self.a, self.b]
 
 class Multiplication(BaseFunction): # a*b
     def __init__(self, a, b):
@@ -250,7 +261,12 @@ class Multiplication(BaseFunction): # a*b
     def String(self):
         if type(self.b) is Potentiation and self.b.b == Constant(-1):
             return "{}/{}".format(self.a.String(), self.b.a.String())
-
+        
+        #if self.a == Constant(-1):
+        #    return "-{}".format(self.b.String())
+        #if self.b == Constant(-1):
+        #    return "-{}".format(self.a.String())
+        
         return "{} * {}".format(self.a.String(), self.b.String())
     
     def Simplify(self):
@@ -270,7 +286,14 @@ class Multiplication(BaseFunction): # a*b
                 if first.a == second:
                     first.b = Addition(first.b, Constant(1))
                     return first.Simplify()
-
+            
+            if type(first) is Potentiation and type(second) is Constant: # 1/c * a
+                if first.b == Constant(-1) and type(first.a) is Constant:
+                    if int(first.a.a) == first.a.a and int(second.a) == second.a:
+                        denom = np.gcd(int(second.a), int(first.a.a))
+                        second.a /= denom
+                        first.a.a /= denom
+ 
             if type(first) is Constant:
                 if first == Constant(0):
                     return Constant(0)
@@ -294,6 +317,9 @@ class Multiplication(BaseFunction): # a*b
     
     def Contains(self, other):
         return self.a.Contains(other) or self.b.Contains(other)
+
+    def GetChildren(self):
+        return [self.a, self.b]
 
 class Potentiation(BaseFunction): # a^b
     def __init__(self, a, b):
@@ -333,6 +359,10 @@ class Potentiation(BaseFunction): # a^b
     def String(self):
         if self.b == Constant(-1):
             return "1/({})".format(self.a.String())
+        if self.b == Constant(0.5):
+            return "sqrt({})".format(self.a.String())
+        if self.b == Constant(-0.5):
+            return "1/sqrt({})".format(self.a.String())
         return "({})^({})".format(self.a.String(), self.b.String())
     
     def Simplify(self):
@@ -340,7 +370,9 @@ class Potentiation(BaseFunction): # a^b
         self.b = self.b.Simplify()
 
         if type(self.a) is Constant and type(self.b) is Constant:
-            return Constant(self.a.a ** self.b.a)
+            c = Constant(self.a.a ** self.b.a)
+            if int(c.a) == c.a:
+                return c
         
         if type(self.a) is Constant:
             if self.a == Constant(0):
@@ -369,10 +401,14 @@ class Potentiation(BaseFunction): # a^b
         return self
 
     def Plot(self, x):
-        return np.pow(self.a.Plot(x), self.b.Plot(x))
+        with np.errstate(invalid='ignore'):
+            return np.pow(self.a.Plot(x), self.b.Plot(x))
 
     def Contains(self, other):
         return self.a.Contains(other) or self.b.Contains(other)
+
+    def GetChildren(self):
+        return [self.a, self.b]
 
 class NaturalLog(BaseFunction): # ln(a)
     def __init__(self, a):
@@ -414,6 +450,9 @@ class NaturalLog(BaseFunction): # ln(a)
     def Contains(self, other):
         return self.a.Contains(other)
 
+    def GetChildren(self):
+        return [self.a]
+
 class Sin(BaseFunction): # sin(a)
     def __init__(self, a):
         super().__init__(a, 0)
@@ -450,6 +489,9 @@ class Sin(BaseFunction): # sin(a)
 
     def Contains(self, other):
         return self.a.Contains(other)
+
+    def GetChildren(self):
+        return [self.a]
     
 class Cos(BaseFunction): # cos(a)
     def __init__(self, a):
@@ -486,6 +528,9 @@ class Cos(BaseFunction): # cos(a)
     def Contains(self, other):
         return self.a.Contains(other)
 
+    def GetChildren(self):
+        return [self.a]
+
 class Tan(BaseFunction): # tan(a)
     def __init__(self, a):
         super().__init__(a, 0)
@@ -521,6 +566,9 @@ class Tan(BaseFunction): # tan(a)
     def Contains(self, other):
         return self.a.Contains(other)
 
+    def GetChildren(self):
+        return [self.a]
+    
 def FindClosingBracket(term_str : str):
     open_bracket_count = 0
     closing_bracket_count = 0
@@ -830,6 +878,21 @@ def InsertImplicitTokens(term_str : str):
             
     return term_str
 
+def Simplify(term):
+    term = term.Simplify()
+
+    term_idx = 0
+    breadth_first_terms = [term]
+    while term_idx < len(breadth_first_terms):
+        breadth_first_terms.extend(breadth_first_terms[term_idx].GetChildren())
+        term_idx += 1
+    
+    for t in breadth_first_terms:
+        print(t.String())
+
+    print("Simplified:", term.String())
+    return term
+
 def ParseArgs():
     if len(sys.argv) <= 1 or sys.argv[1] == "--help":
         Usage()
@@ -865,8 +928,7 @@ term = ParseArgs()
 
 print("Parsed term:", term.String())
 
-term = term.Simplify()
-print("Simplified:", term.String())
+term = Simplify(term)
 
 x = np.linspace(interval[0], interval[1], 10000)
 if term.Contains(Variable()):
@@ -877,7 +939,7 @@ if term.Contains(Variable()):
     plt.xlim(interval)
     plt.ylim(y_cutoff)
 
-print("d/dx[", term.String(), "] =")
+print("\nd/dx[", term.String(), "] =")
 if term.Contains(Variable()):
     term = term.Derivative()
 else:
@@ -890,7 +952,7 @@ def RmOuterBrackets(term_str : str):
             return term_str[1:-1]
     return term_str
 
-term = term.Simplify()
+term = Simplify(term)
 print("Simplified:", RmOuterBrackets(term.String()))
 
 if term.Contains(Variable()):
@@ -900,5 +962,3 @@ if term.Contains(Variable()):
     plt.grid(True, linestyle =':')
     plt.legend()
     plt.show()
-
-# TODO: Better simplification. Add asin, acos, atan, sinh, cosh, tanh
