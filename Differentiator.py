@@ -199,6 +199,11 @@ class Addition(BaseFunction): # a+b
         for first, second in [(self.a, self.b), (self.b, self.a)]:
             if first == sin_2 and second == cos_2:
                 return Constant(1)
+        
+        if type(self.a) is Multiplication and type(self.b) is Multiplication:
+            if self.a.a == self.b.a:
+                return Multiplication(self.a.a, Addition(self.a.b, self.b.b))
+            # TODO: Make commutative
 
         return self
     
